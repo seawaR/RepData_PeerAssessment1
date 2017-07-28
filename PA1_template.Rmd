@@ -1,25 +1,152 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
+author: "Adriana Clavijo"
 output: 
   html_document:
     keep_md: true
 ---
 
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(scipen = 10^5)
+
+library("dplyr")
+library("ggplot2")
+```
+
+This assignment makes use of data from a personal activity monitoring device. 
+This device collects data at 5 minute intervals through out the day. The data 
+consists of two months of data from an anonymous individual collected during the
+months of October and November, 2012 and include the number of steps taken in 
+5-minute intervals each day.
 
 ## Loading and preprocessing the data
 
+```{r load-data}
+data_dir <- "./raw-data/"
 
+if(!dir.exists(data_dir)){
+    dir.create(data_dir)
+}
+
+unzip("activity.zip", exdir = data_dir)
+
+data_file <- paste0(data_dir, "activity.csv")
+
+ind_data <- read.csv(file = data_file, stringsAsFactors = FALSE)
+```
+
+```{r transform-data}
+ind_data[, "date"] <- as.Date(ind_data[, "date"])
+```
 
 ## What is mean total number of steps taken per day?
 
+```{r mean-steps, warning = FALSE, message = FALSE}
+steps_day <- ind_data %>% 
+    group_by(date) %>% 
+    summarise(Total_steps = sum(steps)) %>% 
+    ungroup()
+
+mean_steps <- mean(steps_day$Total_steps, na.rm = TRUE)
+
+median_steps <- median(steps_day$Total_steps, na.rm = TRUE)
+```
+
+The mean of the total steps per day is `r round(mean_steps, 2)` and the median 
+is `r median_steps`. The following plot shows the histogram of the data.
+
+```{r mean-steps-plot, warning = FALSE, message = FALSE}
+ggplot(data = steps_day, aes(Total_steps)) +
+    geom_histogram(bins = 20) + 
+    labs(x = "Total steps", y = "Count",
+         title = "Histogram of total steps per day")
+```
 
 
 ## What is the average daily activity pattern?
 
+```{r avg-steps}
+avg_steps <- ind_data %>% 
+    group_by(interval) %>% 
+    summarise(Avg_steps = mean(steps, na.rm = TRUE)) %>% 
+    ungroup()
+
+max_steps <- max(avg_steps$Avg_steps)
+
+max_int <- avg_steps[avg_steps$Avg_steps == max_steps, ]$interval
+```
+
+The 5-minute interval that contains the maximum average is `r max_int`. This
+maximum can be easily seen in the figure below.
+
+```{r avg-steps-plot}
+ggplot(data = avg_steps, aes(x = interval, y = Avg_steps)) +
+    geom_line() + 
+    labs(x = "Interval", y = "Steps",
+         title = "Average steps by time interval")
+```
 
 
 ## Imputing missing values
 
+```{r missing-values}
+total_nas <- sum(is.na(ind_data$steps))
+
+imputed_data <- ind_data %>% 
+    left_join(avg_steps, by = "interval") %>% 
+    mutate(steps = ifelse(is.na(steps), round(Avg_steps), steps)) %>% 
+    select(steps, date, interval)
+```
+
+The number of missing values in the dataset is `r total_nas`, so I decided to 
+impute those missing values with the rounded value of the average steps for the
+corresponding interval.
+
+The histogram of the imputed data is shown below.
+
+```{r imputed-data, message = FALSE}
+steps_day_imp <- imputed_data %>% 
+    group_by(date) %>% 
+    summarise(Total_steps = sum(steps)) %>% 
+    ungroup()
+
+mean_steps_imp <- mean(steps_day_imp$Total_steps, na.rm = TRUE)
+
+median_steps_imp <- median(steps_day_imp$Total_steps, na.rm = TRUE)
+
+ggplot(data = steps_day_imp, aes(Total_steps)) +
+    geom_histogram(bins = 20) + 
+    labs(x = "Total steps", y = "Count",
+         title = "Histogram of total steps per day with imputed data")
+```
+
+The mean of the total steps for the imputed data is `r round(mean_steps_imp, 2)`
+and the median is `r median_steps_imp`. Both measures are a little smaller than 
+before but the difference is not substantial.
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r days-comparison}
+imputed_data <- imputed_data %>% 
+    mutate(day = weekdays(date),
+           weekday = ifelse(day %in% c("Saturday", "Sunday")
+                            , "weekend", "weekday") %>% 
+               as.factor())
+
+avg_weekdays <- imputed_data %>% 
+    group_by(weekday, interval) %>% 
+    summarise(avg_steps = mean(steps)) %>% 
+    ungroup()
+
+ggplot(data = avg_weekdays, aes(x = interval, y = avg_steps)) +
+    geom_line() +
+    facet_wrap(~weekday, ncol = 1) +
+    labs(x = "Interval", y = "Steps",
+         title = "Average steps by time interval")
+```
+
+It can be observed in the plot above that the maximum value of the average steps 
+occurs during the weekdays and the variance is higher during the weekend.
